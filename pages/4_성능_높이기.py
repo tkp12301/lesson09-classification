@@ -22,7 +22,7 @@ st.title("📈 분류 모델 성능 높이기")
 
 st.write(
     "클래스 가중치를 적용하기 전과 적용한 후의 "
-    "분류 모델 성능 및 0.5 결정 경계를 비교합니다."
+    "분류 모델 성능 및 결정 경계를 비교합니다."
 )
 
 DATA_URL = (
@@ -91,7 +91,6 @@ st.write(
 # 4. 데이터 분할
 # --------------------------------------------------
 
-# ID 순 정렬 후 10명 중 앞의 3명을 테스트 데이터로 사용
 test_mask = data.index % 10 < 3
 
 train_df = data.loc[~test_mask].copy().reset_index(drop=True)
@@ -123,19 +122,13 @@ st.write(
     f"테스트용 실제 양성: {int(y_test.sum()):,}명"
 )
 
-st.caption(
-    "선택한 속성의 결측값은 훈련용 데이터의 중앙값으로 대체합니다."
-)
-
 
 # --------------------------------------------------
 # 5. 로지스틱 회귀 표준화
 # --------------------------------------------------
 
 train_mean = X_train.mean()
-train_std = X_train.std(ddof=0)
-
-train_std = train_std.replace(0, 1)
+train_std = X_train.std(ddof=0).replace(0, 1)
 
 X_train_scaled = (X_train - train_mean) / train_std
 X_test_scaled = (X_test - train_mean) / train_std
@@ -145,22 +138,20 @@ X_test_scaled = (X_test - train_mean) / train_std
 # 6. 모델 학습
 # --------------------------------------------------
 
-# 가중치 적용 전
 logistic_before = LogisticRegression(
     max_iter=2000,
+    random_state=42
+)
+
+logistic_after = LogisticRegression(
+    max_iter=2000,
+    class_weight="balanced",
     random_state=42
 )
 
 tree_before = DecisionTreeClassifier(
     max_depth=3,
     min_samples_leaf=5,
-    random_state=42
-)
-
-# 가중치 적용 후
-logistic_after = LogisticRegression(
-    max_iter=2000,
-    class_weight="balanced",
     random_state=42
 )
 
@@ -176,7 +167,6 @@ logistic_after.fit(X_train_scaled, y_train)
 
 tree_before.fit(X_train, y_train)
 tree_after.fit(X_train, y_train)
-
 
 models = {
     "로지스틱 회귀": {
@@ -197,7 +187,6 @@ models = {
 # --------------------------------------------------
 
 def get_prediction(model, X, scaled=False):
-
     if scaled:
         X_input = (X - train_mean) / train_std
     else:
@@ -207,7 +196,6 @@ def get_prediction(model, X, scaled=False):
 
 
 def get_probability(model, X, scaled=False):
-
     if scaled:
         X_input = (X - train_mean) / train_std
     else:
@@ -234,17 +222,8 @@ def calculate_metrics(y_true, y_pred):
     actual_positive = tp + fn
     predicted_positive = tp + fp
 
-    recall = (
-        tp / actual_positive
-        if actual_positive > 0
-        else None
-    )
-
-    precision = (
-        tp / predicted_positive
-        if predicted_positive > 0
-        else None
-    )
+    recall = tp / actual_positive if actual_positive else None
+    precision = tp / predicted_positive if predicted_positive else None
 
     if precision is None or recall is None:
         f1 = None
@@ -266,7 +245,6 @@ def calculate_metrics(y_true, y_pred):
 
 
 def format_metric(value):
-
     if value is None:
         return "계산할 수 없음"
 
@@ -386,49 +364,9 @@ with col2:
     )
 
 
-st.caption(
-    "TN: 실제 음성을 음성으로 예측 | "
-    "FP: 실제 음성을 양성으로 예측 | "
-    "FN: 실제 양성을 음성으로 예측 | "
-    "TP: 실제 양성을 양성으로 예측"
-)
-
-
 # --------------------------------------------------
-# 11. 결정 경계 계산에 사용할 공통 함수
+# 11. 그래프 공통 함수
 # --------------------------------------------------
-
-def make_grid(x_values, y_values, z_values=None):
-
-    base_values = X_train.median()
-    rows = []
-
-    if z_values is None:
-
-        for y_value in y_values:
-            for x_value in x_values:
-
-                row = base_values.copy()
-                row[x_feature] = x_value
-                row[y_feature] = y_value
-
-                rows.append(row)
-
-    else:
-
-        for z_value in z_values:
-            for y_value in y_values:
-                for x_value in x_values:
-
-                    row = base_values.copy()
-                    row[x_feature] = x_value
-                    row[y_feature] = y_value
-                    row[z_feature] = z_value
-
-                    rows.append(row)
-
-    return pd.DataFrame(rows, columns=selected_features)
-
 
 def make_range(series):
 
@@ -442,19 +380,23 @@ def make_range(series):
     return minimum, maximum
 
 
-# --------------------------------------------------
-# 12. 결정 경계 시각화
-# --------------------------------------------------
+def make_grid(x_values, y_values):
 
-st.divider()
-st.subheader("4. 실제 뇌졸중 여부와 0.5 결정 경계")
+    base_values = X_train.median()
+    rows = []
 
-st.write(
-    "점의 색은 실제 뇌졸중 여부를 나타냅니다. "
-    "경계선 또는 경계면은 모델이 뇌졸중일 확률을 0.5로 예측하는 위치입니다."
-)
+    for y_value in y_values:
+        for x_value in x_values:
 
-# 그래프 색상
+            row = base_values.copy()
+            row[x_feature] = x_value
+            row[y_feature] = y_value
+
+            rows.append(row)
+
+    return pd.DataFrame(rows, columns=selected_features)
+
+
 boundary_styles = {
     ("로지스틱 회귀", "before"): {
         "color": "#F39C12",
@@ -480,8 +422,11 @@ boundary_styles = {
 
 
 # --------------------------------------------------
-# 13. 2차원 산점도와 경계선
+# 12. 2차원 산점도
 # --------------------------------------------------
+
+st.divider()
+st.subheader("4. 실제 데이터 산점도와 0.5 결정 경계")
 
 if len(selected_features) == 2:
 
@@ -495,48 +440,65 @@ if len(selected_features) == 2:
         f"세로축: {feature_names[y_feature]}"
     )
 
-    # 결측값 대체가 완료된 X_test 사용
+    # 테스트 데이터의 실제 점을 먼저 생성
     plot_data = X_test.copy()
 
     plot_data["실제 뇌졸중 여부"] = y_test.map({
         0: "뇌졸중 없음",
         1: "뇌졸중 있음"
-    })
+    }).values
 
-    fig = px.scatter(
-        plot_data,
-        x=x_feature,
-        y=y_feature,
-        color="실제 뇌졸중 여부",
-        color_discrete_map={
-            "뇌졸중 없음": "#2878B5",
-            "뇌졸중 있음": "#E45756"
-        },
-        labels={
-            x_feature: feature_names[x_feature],
-            y_feature: feature_names[y_feature]
-        },
-        title="실제 뇌졸중 여부와 가중치 적용 전후 0.5 경계선"
-    )
+    # 산점도 자체를 먼저 그림
+    fig = go.Figure()
 
+    for label, color in [
+        ("뇌졸중 없음", "#2878B5"),
+        ("뇌졸중 있음", "#E45756")
+    ]:
+
+        group = plot_data[
+            plot_data["실제 뇌졸중 여부"] == label
+        ]
+
+        fig.add_trace(
+            go.Scatter(
+                x=group[x_feature],
+                y=group[y_feature],
+                mode="markers",
+                name=label,
+                marker=dict(
+                    size=7,
+                    color=color,
+                    opacity=0.65
+                ),
+                hovertemplate=(
+                    f"{feature_names[x_feature]}: %{{x}}<br>"
+                    f"{feature_names[y_feature]}: %{{y}}<br>"
+                    f"실제 여부: {label}"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+    # 축 범위 계산
     x_min, x_max = make_range(X_test[x_feature])
     y_min, y_max = make_range(X_test[y_feature])
 
     x_values = [
-        x_min + (x_max - x_min) * i / 119
-        for i in range(120)
+        x_min + (x_max - x_min) * i / 199
+        for i in range(200)
     ]
 
     y_values = [
-        y_min + (y_max - y_min) * i / 119
-        for i in range(120)
+        y_min + (y_max - y_min) * i / 199
+        for i in range(200)
     ]
 
     grid_df = make_grid(x_values, y_values)
 
     boundary_status = {}
 
-    # 네 가지 경계선을 모두 계산
+    # 네 가지 모델 경계선을 각각 계산
     for model_name in ["로지스틱 회귀", "의사결정트리"]:
 
         model_info = models[model_name]
@@ -551,7 +513,6 @@ if len(selected_features) == 2:
                 scaled=model_info["scaled"]
             )
 
-            # y축 행, x축 열로 확률 배열 구성
             probability_grid = [
                 probability[
                     i * len(x_values):(i + 1) * len(x_values)
@@ -562,7 +523,6 @@ if len(selected_features) == 2:
             minimum_probability = float(min(probability))
             maximum_probability = float(max(probability))
 
-            # 그래프 영역 안에 0.5 경계가 존재하는지 확인
             has_boundary = (
                 minimum_probability <= 0.5
                 and maximum_probability >= 0.5
@@ -574,16 +534,23 @@ if len(selected_features) == 2:
 
                 style = boundary_styles[(model_name, stage)]
 
-                # 0.5 등고선을 직접 표시
+                # 0.5 확률의 등고선 표시
                 fig.add_trace(
                     go.Contour(
                         x=x_values,
                         y=y_values,
                         z=probability_grid,
+                        autocontour=False,
                         contours=dict(
-                            type="constraint",
-                            operation="=",
-                            value=0.5
+                            start=0.5,
+                            end=0.5,
+                            size=1,
+                            coloring="none",
+                            showlabels=True,
+                            labelfont=dict(
+                                size=12,
+                                color=style["color"]
+                            )
                         ),
                         line=dict(
                             color=style["color"],
@@ -591,27 +558,31 @@ if len(selected_features) == 2:
                             dash=style["dash"]
                         ),
                         showscale=False,
+                        name=style["label"],
                         hovertemplate=(
                             f"{style['label']}<br>"
                             "예측 확률: 0.5"
                             "<extra></extra>"
-                        ),
-                        name=style["label"],
-                        showlegend=True
+                        )
                     )
                 )
 
     fig.update_layout(
+        title="실제 뇌졸중 여부와 가중치 적용 전후의 0.5 경계선",
         xaxis_title=feature_names[x_feature],
         yaxis_title=feature_names[y_feature],
-        height=700,
-        legend_title="실제 여부 및 결정 경계",
+        height=750,
+        legend_title="실제 여부 / 결정 경계",
         hovermode="closest"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    # 중요: 경계선 유무와 관계없이 산점도를 항상 표시
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
-    st.markdown("#### 0.5 경계선 표시 결과")
+    st.markdown("#### 0.5 경계선 확인")
 
     for model_name in ["로지스틱 회귀", "의사결정트리"]:
 
@@ -621,26 +592,27 @@ if len(selected_features) == 2:
         ]:
 
             if boundary_status[(model_name, stage)]:
+
                 st.success(
-                    f"{display_names[model_name]}의 {stage_name}: "
-                    "0.5 경계선이 그래프에 표시되었습니다."
+                    f"{display_names[model_name]} - {stage_name}: "
+                    "0.5 경계선 표시 완료"
                 )
+
             else:
+
                 st.warning(
-                    f"{display_names[model_name]}의 {stage_name}: "
-                    "0.5 경계선이 현재 그래프 범위 안에 없습니다."
+                    f"{display_names[model_name]} - {stage_name}: "
+                    "현재 그래프 범위에서 0.5 경계선을 찾지 못했습니다."
                 )
 
 
 # --------------------------------------------------
-# 14. 3차원 산점도와 경계면
+# 13. 3차원 산점도
 # --------------------------------------------------
 
 else:
 
     st.markdown("### 3차원 산점도")
-
-    st.write("3차원 그래프의 가로축, 세로축, 높이축을 선택하세요.")
 
     axis_col1, axis_col2, axis_col3 = st.columns(3)
 
@@ -681,7 +653,7 @@ else:
     plot_data["실제 뇌졸중 여부"] = y_test.map({
         0: "뇌졸중 없음",
         1: "뇌졸중 있음"
-    })
+    }).values
 
     fig = px.scatter_3d(
         plot_data,
@@ -697,8 +669,7 @@ else:
             x_feature: feature_names[x_feature],
             y_feature: feature_names[y_feature],
             z_feature: feature_names[z_feature]
-        },
-        title="실제 뇌졸중 여부와 가중치 적용 전후 0.5 경계면"
+        }
     )
 
     x_min, x_max = make_range(X_test[x_feature])
@@ -722,7 +693,25 @@ else:
         for i in range(grid_size)
     ]
 
-    grid_df = make_grid(x_values, y_values, z_values)
+    base_values = X_train.median()
+
+    grid_rows = []
+
+    for z_value in z_values:
+        for y_value in y_values:
+            for x_value in x_values:
+
+                row = base_values.copy()
+                row[x_feature] = x_value
+                row[y_feature] = y_value
+                row[z_feature] = z_value
+
+                grid_rows.append(row)
+
+    grid_df = pd.DataFrame(
+        grid_rows,
+        columns=selected_features
+    )
 
     boundary_status = {}
 
@@ -732,17 +721,13 @@ else:
 
         for stage in ["before", "after"]:
 
-            model = model_info[stage]
-
             probability = get_probability(
-                model,
+                model_info[stage],
                 grid_df,
                 scaled=model_info["scaled"]
             )
 
-            # 확률값을 z축 방향으로 묶음
             probability_volume = []
-
             index = 0
 
             for z_index in range(len(z_values)):
@@ -751,26 +736,23 @@ else:
 
                 for y_index in range(len(y_values)):
 
-                    row = probability[
-                        index:index + len(x_values)
-                    ]
+                    z_layer.append(
+                        probability[
+                            index:index + len(x_values)
+                        ]
+                    )
 
-                    z_layer.append(row)
                     index += len(x_values)
 
                 probability_volume.append(z_layer)
 
-            # 0.5 경계면 계산
-            # 각 x-y 위치에서 z 방향으로 확률이 0.5가 되는 지점을 찾음
-            surface_x = []
-            surface_y = []
             surface_z = []
 
-            for y_index, y_value in enumerate(y_values):
+            for y_index in range(len(y_values)):
 
                 surface_row = []
 
-                for x_index, x_value in enumerate(x_values):
+                for x_index in range(len(x_values)):
 
                     crossing_height = None
 
@@ -797,14 +779,13 @@ else:
 
                             break
 
-                    if crossing_height is not None:
-                        surface_row.append(crossing_height)
-                    else:
+                    if crossing_height is None:
                         surface_row.append(float("nan"))
+                    else:
+                        surface_row.append(crossing_height)
 
                 surface_z.append(surface_row)
 
-            # 경계면이 하나라도 계산되었는지 확인
             has_boundary = any(
                 not pd.isna(value)
                 for row in surface_z
@@ -840,24 +821,24 @@ else:
                 )
 
     fig.update_layout(
+        title="실제 뇌졸중 여부와 가중치 적용 전후 0.5 경계면",
         scene=dict(
             xaxis_title=feature_names[x_feature],
             yaxis_title=feature_names[y_feature],
             zaxis_title=feature_names[z_feature]
         ),
-        height=800,
-        legend_title="실제 여부 및 결정 경계"
+        height=800
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
     st.caption(
-        "그래프를 마우스로 드래그하면 회전할 수 있습니다. "
-        "경계면은 선택한 세 속성으로 구성한 공간에서 계산하며, "
-        "나머지 속성은 훈련 데이터 중앙값으로 고정합니다."
+        "마우스로 드래그하면 그래프를 회전할 수 있습니다. "
+        "선택하지 않은 속성은 훈련 데이터 중앙값으로 고정합니다."
     )
-
-    st.markdown("#### 0.5 경계면 표시 결과")
 
     for model_name in ["로지스틱 회귀", "의사결정트리"]:
 
@@ -868,18 +849,18 @@ else:
 
             if boundary_status[(model_name, stage)]:
                 st.success(
-                    f"{display_names[model_name]}의 {stage_name}: "
-                    "0.5 경계면이 그래프에 표시되었습니다."
+                    f"{display_names[model_name]} - {stage_name}: "
+                    "0.5 경계면 표시 완료"
                 )
             else:
                 st.warning(
-                    f"{display_names[model_name]}의 {stage_name}: "
+                    f"{display_names[model_name]} - {stage_name}: "
                     "현재 그래프 범위에서 0.5 경계면을 찾지 못했습니다."
                 )
 
 
 # --------------------------------------------------
-# 15. 결과 해석
+# 14. 결과 해석
 # --------------------------------------------------
 
 st.divider()
